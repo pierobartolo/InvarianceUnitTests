@@ -15,11 +15,11 @@ def run_experiment(args):
     # build directory name
     commit = git.Repo(search_parent_directories=True).head.object.hexsha[:10]
     results_dirname = os.path.join(args["output_dir"], commit + "/")
-    os.makedirs(results_dirname, exist_ok=True)
+    os.makedirs('.' + results_dirname, exist_ok=True)
 
     # build file name
     md5_fname = hashlib.md5(str(args).encode('utf-8')).hexdigest()
-    results_fname = os.path.join(results_dirname, md5_fname + ".jsonl")
+    results_fname = os.path.join('.' + results_dirname, md5_fname + ".jsonl")
     results_file = open(results_fname, "w")
 
     utils.set_seed(args["data_seed"])

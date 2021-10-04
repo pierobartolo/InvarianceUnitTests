@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 import math
-
+import pdb
 
 class Example1:
     """
@@ -122,6 +122,17 @@ class Example3:
 
         for env in range(n_envs):
             self.envs["E" + str(env)] = torch.randn(1, dim_spu)
+
+        # when n_envs is small the probability of mu_e having the same sign in all
+        # envs is quite high. We fix this changing the sign of mu_e in the last 
+        # environment with the opposite sign of the first environment.
+        
+        comparisons = torch.eq( torch.sign(self.envs[ "E" + str(n_envs -1)]),torch.sign(self.envs["E0"]))[0]
+        for i in range(len(comparisons)):
+            if comparisons[i]:
+                self.envs[ "E" + str(n_envs -1)][0][i] *= -1 
+        
+
 
     def sample(self, n=1000, env="E0", split="train"):
         m = n // 2

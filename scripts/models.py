@@ -45,7 +45,7 @@ class Model(torch.nn.Module):
 class ERM(Model):
     def __init__(self, in_features, out_features, task, hparams="default"):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-3, 10**random.uniform(-4, -2))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
 
         super().__init__(in_features, out_features, task, hparams)
@@ -80,7 +80,7 @@ class IRM(Model):
     def __init__(
             self, in_features, out_features, task, hparams="default", version=1):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-3, 10**random.uniform(-4, -2))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
         self.HPARAMS['irm_lambda'] = (0.9, 1 - 10**random.uniform(-3, -.3))
 
@@ -183,10 +183,17 @@ class AndMask(Model):
 
     def __init__(self, in_features, out_features, task, hparams="default"):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-3, 10**random.uniform(-4, 0))
-        self.HPARAMS['wd'] = (0., 10**random.uniform(-5, 0))
-        self.HPARAMS["tau"] = (0.9, random.uniform(0.8, 1))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
+        self.HPARAMS['wd'] = (0, 10**random.uniform(-6, -2))  
+        #self.HPARAMS["tau"] = (0.8, random.uniform(0.8, 1))
+        self.HPARAMS["tau"] = (0.4, random.uniform(0.4, 0.8))
+
         super().__init__(in_features, out_features, task, hparams)
+
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams["wd"])
 
     def fit(self, envs, num_iterations, callback=False):
         for epoch in range(num_iterations):
@@ -211,7 +218,7 @@ class AndMask(Model):
             gradients = []
             for loss in losses:
                 gradients.append(list(torch.autograd.grad(loss, parameters)))
-                gradients[-1][0] = gradients[-1][0] / gradients[-1][0].norm()
+                # gradients[-1][0] = gradients[-1][0] / gradients[-1][0].norm()
 
             for ge_all, parameter in zip(zip(*gradients), parameters):
                 # environment-wise gradients (num_environments x num_parameters)
@@ -223,7 +230,7 @@ class AndMask(Model):
 
                 # creates a mask with zeros on weak features
                 mask = (torch.abs(torch.sign(ge_cat).sum(0))
-                        > len(losses) * tau).int()
+                        >= len(losses) * tau).int()  # GB: needs to be >= or 1 won't work
 
                 # mean gradient (1 x num_parameters)
                 g_mean = ge_cat.mean(0, keepdim=True)
@@ -231,9 +238,106 @@ class AndMask(Model):
                 # apply the mask
                 g_masked = mask * g_mean
 
-                # update
-                parameter.data = parameter.data - lr * g_masked \
-                    - lr * wd * parameter.data
+                # update # GB commented out SGD for Adam, converges faster
+                # parameter.data = parameter.data - lr * g_masked \
+                #     - lr * wd * parameter.data
+
+                if g_masked.shape != parameter.shape:
+                    parameter.grad = g_masked.squeeze(1)
+                else:
+                    parameter.grad = g_masked
+
+        self.optimizer.step()
+
+
+class IB_IRM(Model):
+    def __init__(
+            self, in_features, out_features, task, hparams="default", version=1):
+        self.HPARAMS = {}
+        self.HPARAMS["lr"] = (5e-2, 10**random.uniform(-3, -1))
+        self.HPARAMS['wd'] = (0.001, 10**random.uniform(-6, -2))
+        self.HPARAMS['irm_lambda'] = (0.9, 1 - 10**random.uniform(-3, -.3))  # 0.5 ~ 0.999
+
+        self.HPARAMS['ib_lambda'] = (0.1, 1 - 10**random.uniform(-2, 0))
+        # self.HPARAMS['ib_on'] = (True, random.choice([True, False]))
+
+        super().__init__(in_features, out_features, task, hparams)
+        self.version = version
+
+        self.network = self.IRMLayer(self.network)
+        self.net_parameters, self.net_dummies = self.find_parameters(
+            self.network)
+
+        self.optimizer = torch.optim.Adam(
+            self.net_parameters,
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams["wd"])
+
+    def find_parameters(self, network):
+        """
+        Alternative to network.parameters() to separate real parameters
+        from dummmies.
+        """
+        parameters = []
+        dummies = []
+
+        for name, param in network.named_parameters():
+            if "dummy" in name:
+                dummies.append(param)
+            else:
+                parameters.append(param)
+        return parameters, dummies
+
+    class IRMLayer(torch.nn.Module):
+
+        def __init__(self, layer):
+            super().__init__()
+            self.layer = layer
+            self.dummy_mul = torch.nn.Parameter(torch.Tensor([1.0]))
+            self.dummy_sum = torch.nn.Parameter(torch.Tensor([0.0]))
+
+        def forward(self, x):
+            return self.layer(x) * self.dummy_mul + self.dummy_sum
+
+    def fit(self, envs, num_iterations, callback=False):
+        for epoch in range(num_iterations):
+            losses_env = []
+            gradients_env = []
+            logits_env = []
+            for x, y in envs["train"]["envs"]:
+                logits = self.network(x)
+                logits_env.append(logits)
+                losses_env.append(self.loss(self.network(x), y))
+                gradients_env.append(grad(losses_env[-1], self.net_dummies, create_graph=True))
+
+            # penalty per env
+            # torch.stack(logits_env): (3, 10000, 1)
+            logit_penalty = torch.stack(logits_env).var(1).mean()
+
+            # Average loss across envs
+            losses_avg = sum(losses_env) / len(losses_env)
+
+            penalty = 0
+            for gradients_this_env in gradients_env:
+                for g_env in gradients_this_env:
+                    penalty += g_env.pow(2).sum()
+
+            obj = (1 - self.hparams["irm_lambda"]) * losses_avg
+            obj += self.hparams["irm_lambda"] * penalty
+
+            # if self.hparams['ib_on'] or (not self.args["ib_bool"]):
+            obj += self.hparams["ib_lambda"] * logit_penalty
+
+            self.optimizer.zero_grad()
+            obj.backward()
+            self.optimizer.step()
+
+            if callback:
+                utils.compute_errors(self, envs)
+
+    def predict(self, x):
+        return self.network(x)
+   
 
 
 class IGA(Model):
@@ -244,7 +348,7 @@ class IGA(Model):
 
     def __init__(self, in_features, out_features, task, hparams="default"):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-3, 10**random.uniform(-4, -2))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
         self.HPARAMS['penalty'] = (1000, 10**random.uniform(1, 5))
         super().__init__(in_features, out_features, task, hparams)
@@ -288,6 +392,7 @@ MODELS = {
     "ERM": ERM,
     "IRMv1": IRMv1,
     "ANDMask": AndMask,
+    "IB-IRM": IB_IRM,
     "IGA": IGA,
     "Oracle": ERM
 }
