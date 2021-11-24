@@ -73,6 +73,12 @@ def run_experiment(args):
             args[key + "_" +
                  k_env] = utils.compute_error(model, *env)
 
+    if args["model"] in ["IRMv1","IB-IRM"]:
+        args['w_spu_norm'] = float(abs(model.net_parameters[0][0,args['dim_spu']:]).max().detach())
+    else:
+        args['w_spu_norm'] = float(abs(model.network.weight[0,args['dim_spu']:]).max().detach())
+
+
     # write results
     results_file.write(json.dumps(args))
     results_file.close()

@@ -45,7 +45,7 @@ class Model(torch.nn.Module):
 class ERM(Model):
     def __init__(self, in_features, out_features, task, hparams="default"):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-2, -1))
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
 
         super().__init__(in_features, out_features, task, hparams)
@@ -80,7 +80,7 @@ class IRM(Model):
     def __init__(
             self, in_features, out_features, task, hparams="default", version=1):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-2, -1))
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
         self.HPARAMS['irm_lambda'] = (0.9, 1 - 10**random.uniform(-3, -.3))
 
@@ -183,7 +183,7 @@ class AndMask(Model):
 
     def __init__(self, in_features, out_features, task, hparams="default"):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-2, -1))
         self.HPARAMS['wd'] = (0, 10**random.uniform(-6, -2))  
         #self.HPARAMS["tau"] = (0.8, random.uniform(0.8, 1))
         self.HPARAMS["tau"] = (0.4, random.uniform(0.4, 0.8))
@@ -254,11 +254,11 @@ class IB_IRM(Model):
     def __init__(
             self, in_features, out_features, task, hparams="default", version=1):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (5e-2, 10**random.uniform(-3, -1))
-        self.HPARAMS['wd'] = (0.001, 10**random.uniform(-6, -2))
+        self.HPARAMS["lr"] = (5e-2, 10**random.uniform(-2, -1))
+        self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
         self.HPARAMS['irm_lambda'] = (0.9, 1 - 10**random.uniform(-3, -.3))  # 0.5 ~ 0.999
 
-        self.HPARAMS['ib_lambda'] = (0.1, 1 - 10**random.uniform(-2, 0))
+        self.HPARAMS['ib_lambda'] = (0.5, 1 - 10**random.uniform(-2, 0))
         # self.HPARAMS['ib_on'] = (True, random.choice([True, False]))
 
         super().__init__(in_features, out_features, task, hparams)
@@ -348,7 +348,7 @@ class IGA(Model):
 
     def __init__(self, in_features, out_features, task, hparams="default"):
         self.HPARAMS = {}
-        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-3, -1))
+        self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-2, -1))
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
         self.HPARAMS['penalty'] = (1000, 10**random.uniform(1, 5))
         super().__init__(in_features, out_features, task, hparams)
@@ -391,7 +391,7 @@ class IGA(Model):
 MODELS = {
     "ERM": ERM,
     "IRMv1": IRMv1,
-    "ANDMask": AndMask,
+    #"ANDMask": AndMask,
     "IB-IRM": IB_IRM,
     "IGA": IGA,
     "Oracle": ERM

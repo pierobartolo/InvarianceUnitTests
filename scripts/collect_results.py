@@ -7,6 +7,7 @@ import json
 import argparse
 import matplotlib.pyplot as plt
 import plot_results
+import pdb
 
 def print_row(row, col_width=15, latex=False):
     sep = " & " if latex else "  "
@@ -157,6 +158,57 @@ def build_table(dirname, models=None, n_envs=None, num_dim=None, latex=False, st
     return table, table_avg, table_hparams, table_val, table_val_avg, df
 
 
+
+def build_wnorm_table(dirname):
+    records = []
+    for fname in glob.glob(os.path.join(dirname, "*.jsonl")):
+        with open(fname, "r") as f:
+            if os.path.getsize(fname) != 0:
+                records.append(f.readline().strip())
+
+    df = pd.read_json("\n".join(records), lines=True)
+
+
+    print(f'{len(df)} records.')
+
+    table_wspu_norm = {}
+
+    for dataset in df["dataset"].unique():
+        # filtered by dataset
+        df_d = df[df["dataset"] == dataset]
+        envs = sorted(list(set(
+            [c[-1] for c in df_d.filter(regex="error_").columns])))
+ 
+
+        table_wspu_norm[dataset] = {}
+       
+
+        for model in df["model"].unique():
+            # filtered by model
+            df_d_m = df_d[df_d["model"] == model]
+
+            best_model_seed = df_d_m.groupby("model_seed").mean().filter(
+                regex='error_validation').sum(1).idxmin()
+
+            # filtered by hparams
+            df_d_m_s = df_d_m[df_d_m["model_seed"] == best_model_seed].filter(
+                regex="w_spu_norm")
+
+            # store the best hparams
+            df_d_m_s_h = df_d_m[df_d_m["model_seed"] == best_model_seed].filter(
+                regex="hparams")
+        
+           
+            w_spu_norm =  df_d_m[df_d_m["model_seed"] == best_model_seed].filter(
+                regex="w_spu_norm")
+            table_wspu_norm[dataset][model] = {}
+            table_wspu_norm[dataset][model]['mean'] = json.dumps(w_spu_norm['w_spu_norm'].mean())
+            table_wspu_norm[dataset][model]['std'] = json.dumps(w_spu_norm['w_spu_norm'].std())
+
+        
+    return table_wspu_norm
+            
+           
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("dirname")
@@ -164,25 +216,32 @@ if __name__ == "__main__":
     parser.add_argument('--models', nargs='+', default=None)
     parser.add_argument('--num_dim', type=int, default=None)
     parser.add_argument('--n_envs', type=int, default=None)
+    parser.add_argument('--error', type=int, default=True)
     args = parser.parse_args()
 
-    table, table_avg, table_hparams, table_val, table_val_avg, df = build_table(
-        args.dirname, args.models, args.n_envs, args.num_dim, args.latex)
+    if args.error:
+        table, table_avg, table_hparams, table_val, table_val_avg, df = build_table(
+            args.dirname, args.models, args.n_envs, args.num_dim, args.latex)
 
-    # Print table and averaged table
-    print_table(table, latex=args.latex)
-    print_table(table_avg, latex=args.latex)
+        # Print table and averaged table
+        print_table(table, latex=args.latex)
+        print_table(table_avg, latex=args.latex)
 
-    # Print best hparams
-    print_table_hparams(table_hparams)
+        # Print best hparams
+        print_table_hparams(table_hparams)
 
-    # Plot results
-    commit = args.dirname.split('/')[-2]
-    plot_results.plot_table(
-        table=table_val, 
-        dirname=args.dirname, 
-        file_name='results_' + commit)
-    plot_results.plot_table_avg(
-        table=table_val_avg, 
-        dirname=args.dirname, 
-        file_name='results_avg_' + commit)
+        # Plot results
+        commit = args.dirname.split('/')[-2]
+        plot_results.plot_table(
+            table=table_val, 
+            dirname=args.dirname, 
+            file_name='results_' + commit)
+        plot_results.plot_table_avg(
+            table=table_val_avg, 
+            dirname=args.dirname, 
+            file_name='results_avg_' + commit)
+
+    else:
+        table = build_wnorm_table(args.dirname)
+        print(table)
+
