@@ -6,7 +6,8 @@ import random
 import numpy as np
 import utils
 from torch.autograd import grad
-
+import pdb
+import wandb
 
 class Model(torch.nn.Module):
     def __init__(self, in_features, out_features, task, hparams="default"):
@@ -49,6 +50,7 @@ class ERM(Model):
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
 
         super().__init__(in_features, out_features, task, hparams)
+        #torch.nn.init.uniform_(self.network.weight, a=0,b=1e-6) # initialize weights with prior beliefs that all features are spurious
 
         self.optimizer = torch.optim.Adam(
             self.network.parameters(),
@@ -60,6 +62,10 @@ class ERM(Model):
         y = torch.cat([ye for xe, ye in envs["train"]["envs"]])
 
         for epoch in range(num_iterations):
+            utils.compute_errors(self, envs)
+            wandb.log({'train_loss':self.loss(self.network(x), y), 'test_error':
+            (self.callbacks['errors']['test']['E0'][-1]+  self.callbacks['errors']['test']['E1'][-1]
+              +   self.callbacks['errors']['test']['E2'][-1])/3})
             self.optimizer.zero_grad()
             self.loss(self.network(x), y).backward()
             self.optimizer.step()
@@ -86,6 +92,7 @@ class IRM(Model):
 
         super().__init__(in_features, out_features, task, hparams)
         self.version = version
+        #torch.nn.init.uniform_(self.network.weight, a=0,b=1e-6) # initialize weights with prior beliefs that all features are spurious
 
         self.network = self.IRMLayer(self.network)
         self.net_parameters, self.net_dummies = self.find_parameters(
@@ -128,6 +135,8 @@ class IRM(Model):
             return self.layer(x) * self.dummy_mul + self.dummy_sum
 
     def fit(self, envs, num_iterations, callback=False):
+        x_all = torch.cat([xe for xe, ye in envs["train"]["envs"]])
+        y_all = torch.cat([ye for xe, ye in envs["train"]["envs"]])
         for epoch in range(num_iterations):
             losses_env = []
             gradients_env = []
@@ -151,7 +160,10 @@ class IRM(Model):
 
             obj = (1 - self.hparams["irm_lambda"]) * losses_avg
             obj += self.hparams["irm_lambda"] * penalty
-
+            utils.compute_errors(self, envs)
+            wandb.log({'test_error':
+            (self.callbacks['errors']['test']['E0'][-1]+  self.callbacks['errors']['test']['E1'][-1]
+              +   self.callbacks['errors']['test']['E2'][-1])/3})
             self.optimizer.zero_grad()
             obj.backward()
             self.optimizer.step()
@@ -185,20 +197,27 @@ class AndMask(Model):
         self.HPARAMS = {}
         self.HPARAMS["lr"] = (1e-1, 10**random.uniform(-2, -1))
         self.HPARAMS['wd'] = (0, 10**random.uniform(-6, -2))  
-        #self.HPARAMS["tau"] = (0.8, random.uniform(0.8, 1))
-        self.HPARAMS["tau"] = (0.4, random.uniform(0.4, 0.8))
-
+        self.HPARAMS["tau"] = (0.99, random.uniform(0.8, 1))
+        #self.HPARAMS["tau"] = (0.95, random.uniform(0.4, 0.8))
         super().__init__(in_features, out_features, task, hparams)
-
+        torch.nn.init.uniform_(self.network.weight, a=0,b=0) # initialize weights with prior beliefs that all features are spurious
         self.optimizer = torch.optim.Adam(
             self.network.parameters(),
             lr=self.hparams["lr"],
             weight_decay=self.hparams["wd"])
 
     def fit(self, envs, num_iterations, callback=False):
+        x_all = torch.cat([xe for xe, ye in envs["train"]["envs"]])
+        y_all = torch.cat([ye for xe, ye in envs["train"]["envs"]])
         for epoch in range(num_iterations):
+            #losses = [self.loss(self.network(x), y)
+                   #   for x, y in envs["train"]["envs"]]
             losses = [self.loss(self.network(x), y)
-                      for x, y in envs["train"]["envs"]]
+                         for x,y in zip(x_all,y_all)]
+            utils.compute_errors(self, envs)
+            wandb.log({'test_error':
+            (self.callbacks['errors']['test']['E0'][-1]+  self.callbacks['errors']['test']['E1'][-1]
+              +   self.callbacks['errors']['test']['E2'][-1])/3})
             self.mask_step(
                 losses, list(self.parameters()),
                 tau=self.hparams["tau"],
@@ -223,11 +242,11 @@ class AndMask(Model):
             for ge_all, parameter in zip(zip(*gradients), parameters):
                 # environment-wise gradients (num_environments x num_parameters)
                 ge_cat = torch.cat(ge_all)
+                #pdb.set_trace()
 
                 # treat scalar parameters also as matrices
                 if ge_cat.dim() == 1:
                     ge_cat = ge_cat.view(len(losses), -1)
-
                 # creates a mask with zeros on weak features
                 mask = (torch.abs(torch.sign(ge_cat).sum(0))
                         >= len(losses) * tau).int()  # GB: needs to be >= or 1 won't work
@@ -260,8 +279,9 @@ class IB_IRM(Model):
 
         self.HPARAMS['ib_lambda'] = (0.5, 1 - 10**random.uniform(-2, 0))
         # self.HPARAMS['ib_on'] = (True, random.choice([True, False]))
-
         super().__init__(in_features, out_features, task, hparams)
+        #torch.nn.init.uniform_(self.network.weight, a=0,b=1e-6) # initialize weights with prior beliefs that all features are spurious
+
         self.version = version
 
         self.network = self.IRMLayer(self.network)
@@ -300,7 +320,13 @@ class IB_IRM(Model):
             return self.layer(x) * self.dummy_mul + self.dummy_sum
 
     def fit(self, envs, num_iterations, callback=False):
+        x_all = torch.cat([xe for xe, ye in envs["train"]["envs"]])
+        y_all = torch.cat([ye for xe, ye in envs["train"]["envs"]])
         for epoch in range(num_iterations):
+            utils.compute_errors(self, envs)
+            wandb.log({'train_loss':self.loss(self.network(x_all), y_all), 'epoch':epoch, 'test_error':
+            (self.callbacks['errors']['test']['E0'][-1]+  self.callbacks['errors']['test']['E1'][-1]
+              +   self.callbacks['errors']['test']['E2'][-1])/3})
             losses_env = []
             gradients_env = []
             logits_env = []
@@ -327,7 +353,7 @@ class IB_IRM(Model):
 
             # if self.hparams['ib_on'] or (not self.args["ib_bool"]):
             obj += self.hparams["ib_lambda"] * logit_penalty
-
+            
             self.optimizer.zero_grad()
             obj.backward()
             self.optimizer.step()
@@ -352,6 +378,7 @@ class IGA(Model):
         self.HPARAMS['wd'] = (0., 10**random.uniform(-6, -2))
         self.HPARAMS['penalty'] = (1000, 10**random.uniform(1, 5))
         super().__init__(in_features, out_features, task, hparams)
+       # torch.nn.init.uniform_(self.network.weight, a=0,b=1e-6) # initialize weights with prior beliefs that all features are spurious
 
         self.optimizer = torch.optim.Adam(
             self.parameters(),
@@ -360,6 +387,11 @@ class IGA(Model):
 
     def fit(self, envs, num_iterations, callback=False):
         for epoch in range(num_iterations):
+            utils.compute_errors(self, envs)
+            wandb.log({'test_error':
+            (self.callbacks['errors']['test']['E0'][-1]+  self.callbacks['errors']['test']['E1'][-1]
+              +   self.callbacks['errors']['test']['E2'][-1])/3})
+
             losses = [self.loss(self.network(x), y)
                       for x, y in envs["train"]["envs"]]
             gradients = [
@@ -391,7 +423,7 @@ class IGA(Model):
 MODELS = {
     "ERM": ERM,
     "IRMv1": IRMv1,
-    #"ANDMask": AndMask,
+    "ANDMask": AndMask,
     "IB-IRM": IB_IRM,
     "IGA": IGA,
     "Oracle": ERM

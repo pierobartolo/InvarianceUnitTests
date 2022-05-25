@@ -9,12 +9,13 @@ import os
 import datasets
 import models
 import utils
+import wandb
 
 
 def run_experiment(args):
     # build directory name
-    commit = git.Repo(search_parent_directories=True).head.object.hexsha[:10]
-    results_dirname = os.path.join(args["output_dir"], commit + "/")
+    #commit = git.Repo(search_parent_directories=True).head.object.hexsha[:10]
+    results_dirname = os.path.join(args["output_dir"], "/")
     os.makedirs('.' + results_dirname, exist_ok=True)
 
     # build file name
@@ -78,6 +79,7 @@ def run_experiment(args):
     else:
         args['w_spu_norm'] = float(abs(model.network.weight[0,args['dim_spu']:]).max().detach())
 
+    wandb.log({'w_spu_norm':args['w_spu_norm'] })
 
     # write results
     results_file.write(json.dumps(args))
@@ -88,17 +90,20 @@ def run_experiment(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Synthetic invariances')
     parser.add_argument('--model', type=str, default="ERM")
-    parser.add_argument('--num_iterations', type=int, default=10000)
+    parser.add_argument('--num_iterations', type=int, default=5000)
     parser.add_argument('--hparams', type=str, default="default")
     parser.add_argument('--dataset', type=str, default="Example1")
     parser.add_argument('--dim_inv', type=int, default=5)
     parser.add_argument('--dim_spu', type=int, default=5)
     parser.add_argument('--n_envs', type=int, default=3)
     parser.add_argument('--num_samples', type=int, default=10000)
-    parser.add_argument('--data_seed', type=int, default=0)
+    parser.add_argument('--data_seed', type=int, default=10)
     parser.add_argument('--model_seed', type=int, default=0)
     parser.add_argument('--output_dir', type=str, default="results")
     parser.add_argument('--callback', action='store_true')
     args = parser.parse_args()
+    wandb.init(project="scis-icml2022", group=args.model + '_dataseed_'+str(args.data_seed))
+    wandb.config.update(args) 
 
     pprint.pprint(run_experiment(vars(args)))
+  
